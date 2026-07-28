@@ -33,7 +33,6 @@ A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built arou
 
 ```sh
 curl -sL https://raw.githubusercontent.com/VVAT3R/ani-cli/master/install.sh | sudo sh
-ani-cli "one piece"
 ```
 
 ### Learn more
