@@ -1,73 +1,47 @@
-<h3 align="center">
-A cli to browse and watch anime (alone AND with friends).
-</h3>
+<div align="center">
+  <img src="https://i.imgur.com/wD6o8a7.png" alt="ani-cli" width="120">
+  <h1>ani-cli</h1>
+  <p><strong>Watch anime from your terminal. No bloat. No Python.</strong></p>
 
-<h4 align="center">
-Fork of <a href="https://github.com/pystardust/ani-cli">pystardust/ani-cli</a> with:
-<br><br>
-&#x2022; <a href="https://anidb.app">anidb.app</a> as primary source (direct HLS streams, faster)<br>
-&#x2022; Watch history with resume position tracking<br>
-&#x2022; Batch download with progress indicator<br>
-&#x2022; Genre filtering via anidb.app
-</h4>
+  <p>
+    <a href="https://github.com/VVAT3R/ani-cli/wiki/Installation">Install</a> •
+    <a href="https://github.com/VVAT3R/ani-cli/wiki/Usage">Usage</a> •
+    <a href="https://github.com/VVAT3R/ani-cli/wiki/FAQ">FAQ</a> •
+    <a href="https://github.com/VVAT3R/ani-cli/wiki">Wiki</a>
+  </p>
 
-## Table of Contents
+  <p>
+    <img src="https://img.shields.io/badge/license-GPLv3-blue" alt="License">
+    <img src="https://img.shields.io/badge/shell-POSIX-green" alt="POSIX">
+  </p>
+</div>
 
-- [Install](#install)
-- [Update](#update)
-- [Uninstall](#uninstall)
-- [Dependencies](#dependencies)
-- [FAQ](#faq)
+---
 
-## Install
+A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built around **anidb.app** — direct HLS streams, no Botan/OpenSSL crypto, no Python.
 
-### Quick install (curl)
+### What makes this fork different?
+
+- **anidb.app** as primary source — faster, direct `.m3u8` streams
+- No Botan, OpenSSL, or Python dependencies
+- Watch history with resume position tracking
+- Batch download with progress indicator
+- Genre filtering
+- Install & uninstall scripts included
+
+### Quick start
 
 ```sh
 curl -sL https://raw.githubusercontent.com/VVAT3R/ani-cli/master/install.sh | sudo sh
+ani-cli "one piece"
 ```
 
-### Manual install
+### Learn more
 
-Install dependencies (see [below](#dependencies)), then:
-
-```sh
-git clone "https://github.com/VVAT3R/ani-cli.git"
-sudo cp ani-cli/ani-cli /usr/local/bin
-rm -rf ani-cli
-```
-
-## Update
-
-```sh
-sudo ani-cli -U
-```
-
-## Uninstall
-
-```sh
-curl -sL https://raw.githubusercontent.com/VVAT3R/ani-cli/master/uninstall.sh | sudo sh
-```
-
-## Dependencies
-
-- `curl` — HTTP requests
-- `sed`, `grep` — text processing
-- `mpv` — video player (or `iina` on macOS, `vlc` with `--vlc`)
-- `fzf` — interactive menu
-- `ffmpeg` — download support (with `-d`)
-- `aria2c` — download support (with `-d`)
-- `yt-dlp` — download support (with `-d`)
-- `ani-skip` *(optional)* — auto-skip intros
-
-## FAQ
-
-- **Can I watch dub?** — Yes, `ani-cli --dub`
-- **Can I change quality?** — Yes, `ani-cli -q 1080`
-- **Can I download?** — Yes, `ani-cli -d`
-- **Can I batch download?** — Yes, `ani-cli --batch -e 1-24 "one piece"`
-- **Can I use vlc?** — Yes, `ani-cli --vlc`
-- **Can I resume where I left off?** — Yes, `ani-cli --resume -c`
-- **Can I browse by genre?** — Yes, `ani-cli --genre`
-- **How do I bulk download?** — `ani-cli -d -e 1-100 one piece`
-- **Full options** — `ani-cli --help`
+| Topic | Link |
+|-------|------|
+| 📦 Installation | [Installation guide](https://github.com/VVAT3R/ani-cli/wiki/Installation) |
+| 🎮 Usage & flags | [Usage guide](https://github.com/VVAT3R/ani-cli/wiki/Usage) |
+| ❓ Questions | [FAQ](https://github.com/VVAT3R/ani-cli/wiki/FAQ) |
+| 🗑️ Uninstall | [Uninstallation](https://github.com/VVAT3R/ani-cli/wiki/Uninstallation) |
+| 🔄 Update | [Update & Patch](https://github.com/VVAT3R/ani-cli/wiki/Update-and-Patch) |
