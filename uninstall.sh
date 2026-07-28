@@ -1,7 +1,11 @@
 #!/bin/sh
 set -e
 
-INSTALL_DIR="${ANI_CLI_INSTALL_DIR:-/usr/local/bin}"
+if echo "$PREFIX" | grep -q "com.termux"; then
+    INSTALL_DIR="${ANI_CLI_INSTALL_DIR:-/data/data/com.termux/files/usr/bin}"
+else
+    INSTALL_DIR="${ANI_CLI_INSTALL_DIR:-/usr/local/bin}"
+fi
 
 printf "\033[1;34mUninstalling ani-cli...\033[0m\n"
 
