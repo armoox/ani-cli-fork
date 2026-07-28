@@ -17,9 +17,9 @@
 
 ---
 
-A POSIX shell script to browse, watch, and download anime from your terminal. Powered by **anidb.app** for direct HLS streams — no crypto dependencies, no bloat.
+A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built around **anidb.app** — direct HLS streams, no crypto dependencies.
 
-### Features
+### What makes this fork different?
 
 - **anidb.app** source — direct `.m3u8` streams, no crypto dependencies
 - Watch history with resume position tracking
