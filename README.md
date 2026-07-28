@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://i.imgur.com/wD6o8a7.png" alt="ani-cli" width="120">
   <h1>ani-cli</h1>
-  <p><strong>Watch anime from your terminal. No bloat. No Python.</strong></p>
+  <p><strong>Watch anime from your terminal.</strong></p>
 
   <p>
     <a href="https://github.com/VVAT3R/ani-cli/wiki/Installation">Install</a> •
@@ -23,7 +23,6 @@ A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built arou
 ### What makes this fork different?
 
 - **anidb.app** as primary source — faster, direct `.m3u8` streams
-- No Botan, OpenSSL, or Python dependencies
 - Watch history with resume position tracking
 - Batch download with progress indicator
 - Install & uninstall scripts included
