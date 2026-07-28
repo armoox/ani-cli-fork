@@ -483,7 +483,7 @@ hist_dir="${ANI_CLI_HIST_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ani-cli}"
 [ ! -d "$hist_dir" ] && mkdir -p "$hist_dir"
 histfile="$hist_dir/ani-hsts"
 [ ! -f "$histfile" ] && : >"$histfile"
-search="scrape"
+search="search"
 branch="${ANI_CLI_BRANCH:-master}"
 resume_enabled=0
 batch_mode=0
@@ -579,11 +579,10 @@ case "$player_function" in
     download) dep_ch_failover "yt-dlp,ffmpeg" >/dev/null || die 'Neither yt-dlp nor ffmpeg found' ;;
     android*) printf "\33[2K\rChecking of players on Android is disabled.\n" ;;
     *iSH*) printf "\33[2K\rChecking of players on iOS is disabled\n" ;;
-    mpv|flatpak_mpv) dep_ch "$player_function" "socat" ;;
+    mpv|flatpak_mpv) dep_ch "socat" ;;
     *) dep_ch "$player_function" ;;
 esac
 
-# idk where to put this, so I put it here...
 trap 'cleanup; exit 1' INT HUP
 
 # searching
