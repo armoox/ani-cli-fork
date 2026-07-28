@@ -199,7 +199,7 @@ get_anidb_m3u8() {
     _lang_pref="jpn"
     [ "$mode" = "dub" ] && _lang_pref="eng"
     _lang_json="$(anidb_curl "https://anidb.app/api/frontend/episode/${_ep_id}/languages" -A "$agent" -H "Accept: application/json" --max-time 10)"
-    _embed_url="$(printf '%s' "$_lang_json" | sed -nE "s|.*\"code\":\"${_lang_pref}\".*\"embed_url\":\"([^\"]*)\".*|\1|p;s|.*\"embed_url\":\"([^\"]*)\".*\"code\":\"${_lang_pref}\".*|\1|p" | head -1)"
+    _embed_url="$(printf '%s' "$_lang_json" | sed -nE "s|.*\"code\":\"${_lang_pref}\"[^}]*\"embed_url\":\"([^\"]*)\".*|\1|p;s|.*\"embed_url\":\"([^\"]*)\"[^}]*\"code\":\"${_lang_pref}\".*|\1|p" | head -1)"
     [ -z "$_embed_url" ] && _embed_url="$(printf '%s' "$_lang_json" | sed -nE 's|.*"embed_url":"([^"]*)".*|\1|p' | head -1)"
     _embed_url="$(printf '%s' "$_embed_url" | sed 's|\\/|/|g')"
     [ -z "$_embed_url" ] && return 1

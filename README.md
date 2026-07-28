@@ -17,11 +17,11 @@
 
 ---
 
-A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built around **anidb.app** — direct HLS streams, no Botan/OpenSSL crypto.
+A POSIX shell script to browse, watch, and download anime from your terminal. Powered by **anidb.app** for direct HLS streams — no crypto dependencies, no bloat.
 
-### What makes this fork different?
+### Features
 
-- **anidb.app** as primary source — faster, direct `.m3u8` streams
+- **anidb.app** source — direct `.m3u8` streams, no crypto dependencies
 - Watch history with resume position tracking
 - Batch download with progress indicator
 - Install & uninstall scripts included
