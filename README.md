@@ -18,7 +18,7 @@
 
 ---
 
-A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built around **anidb.app** — direct HLS streams, no Botan/OpenSSL crypto, no Python.
+A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built around **anidb.app** — direct HLS streams, no Botan/OpenSSL crypto.
 
 ### What makes this fork different?
 
