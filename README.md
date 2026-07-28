@@ -26,7 +26,6 @@ A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built arou
 - No Botan, OpenSSL, or Python dependencies
 - Watch history with resume position tracking
 - Batch download with progress indicator
-- Genre filtering
 - Install & uninstall scripts included
 
 ### Quick start
