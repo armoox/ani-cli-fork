@@ -76,8 +76,6 @@ help_info() {
         Specify the number of episodes to watch
       --dub
         Play dubbed version
-      --genre
-        Browse anime by genre (interactive picker)
       --rofi
         Use rofi instead of fzf for the interactive menu
       --dmenu
@@ -99,7 +97,6 @@ help_info() {
       %s --skip --skip-title \"one piece\" -S 2 one piece
       %s -d -e 2 cyberpunk edgerunners
       %s --batch one piece
-      %s --genre
       %s --resume -c
       %s --vlc cyberpunk edgerunners -q 1080p -e 4
       %s blue lock -e 5-6
@@ -165,48 +162,6 @@ select_quality() {
 
     refr_flag="--referrer=https://anidb.app"
     episode=$(printf "%s" "$result" | cut -d'>' -f2)
-}
-
-# genre browsing via anidb.app
-genre_list() {
-    _genres="1:Action
-2:Drama
-3:Adventure
-4:Fantasy
-5:Comedy
-6:Sci-Fi
-7:Mystery
-8:Gourmet
-9:Slice of Life
-10:Supernatural
-11:Sports
-12:Award Winning
-13:Ecchi
-14:Romance
-16:Boys Love
-18:Suspense
-19:Avant Garde
-20:Girls Love
-21:Horror"
-    printf "%s" "$_genres" | while IFS=: read -r _id _name; do
-        printf "%s\t%s\n" "$_id" "$_name"
-    done
-}
-
-browse_genre() {
-    _genre_id="$1"
-    _page="$(curl -sL "https://anidb.app/browse?genres=${_genre_id}" -A "$agent" --max-time 15)"
-    printf '%s' "$_page" | sed -nE 's|.*href="https://anidb.app/anime/[a-z0-9-]+-([0-9]+)"[^>]*title="([^"]*)".*|\1\t\2|p' | head -20
-}
-
-search_by_genre() {
-    _genre_name="$1"
-    _genre_id=$(genre_list | grep -i "$_genre_name" | cut -f1 | head -1)
-    [ -z "$_genre_id" ] && die "Genre not found!"
-    printf "\33[2K\r\033[1;34mFetching anime in %s...\033[0m\n" "$_genre_name" 1>&2
-    _results=$(browse_genre "$_genre_id")
-    [ -z "$_results" ] && die "No anime found for this genre!"
-    printf "%s" "$_results" | nl -w 2 | sed 's/^[[:space:]]//'
 }
 
 # anidb.app: search, get episodes, extract m3u8
@@ -558,7 +513,6 @@ while [ $# -gt 0 ]; do
             : >"$histfile"
             exit 0
             ;;
-        --genre) search=genre ;;
         -l | --logview)
             case "$(uname -s)" in
                 Darwin*) log show --predicate 'process == "logger"' ;;
@@ -631,25 +585,6 @@ case "$search" in
         ep_no=$(printf "%s" "$anime_list" | grep "$id" | cut -f2 | sed -nE 's/.*- episode (.+)$/\1/p')
         anime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         printf "%s" "$anime_list" | grep "$id" | cut -f2 | grep -q "(up to date)" && time_until_next_ep "$anime_title"
-        ;;
-    genre)
-        if [ -z "$query" ]; then
-            _genre_picker=$(genre_list | nl -w 2 | sed 's/^[[:space:]]//' | nth "Select genre: ")
-            [ -z "$_genre_picker" ] && exit 1
-            _genre_name=$(printf "%s" "$_genre_picker" | cut -f2 | sed 's/^[[:space:]]*//')
-        else
-            _genre_name="$query"
-        fi
-        _genre_results=$(search_by_genre "$_genre_name")
-        [ -z "$_genre_results" ] && exit 1
-        result=$(printf "%s" "$_genre_results" | nth "Select anime: ")
-        [ -z "$result" ] && exit 1
-        title=$(printf "%s" "$result" | cut -f2)
-        id=$(printf "%s" "$result" | cut -f1)
-        anime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
-        ep_list=$(episodes_list_anidb "$id")
-        [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | nth "Select episode: " "$multi_selection_flag")
-        [ -z "$ep_no" ] && exit 1
         ;;
     *)
         if [ "$use_external_menu" = "0" ]; then
