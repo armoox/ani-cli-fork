@@ -5,7 +5,11 @@ REPO="VVAT3R/ani-cli"
 BRANCH="master"
 RAW="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 
+if echo $PREFIX | grep -o "com.termux"; then
+INSTALL_DIR="/data/data/com.termux/files/usr/bin"
+else
 INSTALL_DIR="${ANI_CLI_INSTALL_DIR:-/usr/local/bin}"
+fi
 
 printf "\033[1;34mInstalling ani-cli from %s...\033[0m\n" "$REPO"
 
