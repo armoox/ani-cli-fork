@@ -1,5 +1,4 @@
 <div align="center">
-  <img src="https://i.imgur.com/wD6o8a7.png" alt="ani-cli" width="120">
   <h1>ani-cli</h1>
   <p><strong>Watch anime from your terminal.</strong></p>
 
