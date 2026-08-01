@@ -348,6 +348,9 @@ play_episode() {
     [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$ep_no")"
     [ -z "$episode" ] && get_episode_url
 
+    # wait for the previous player to close before starting a new one
+    wait 2>/dev/null
+
     # resume position
     _resume_pos=""
     if [ "$resume_enabled" = 1 ]; then
@@ -371,6 +374,7 @@ play_episode() {
             ;;
         mpv*)
             _mpv_args=""
+            [ -n "$_mpv_socket" ] && rm -f "$_mpv_socket"
             [ -n "$_mpv_socket" ] && _mpv_args="--input-ipc-server=$_mpv_socket"
             [ -n "$_resume_pos" ] && [ "$_resume_pos" != "0" ] && _mpv_args="$_mpv_args --start=$_resume_pos"
             if [ "$no_detach" = 0 ]; then
@@ -405,18 +409,20 @@ play_episode() {
     replay="$episode"
     unset episode
 
-    # wait for player and save position
-    _final_pos="0"
+    # save playback position
     case "$player_function" in
         mpv*|flatpak_mpv)
-            wait $! 2>/dev/null
-            _final_pos=$(get_mpv_position)
-            rm -f "$_mpv_socket"
+            if [ "$menu_program" != "fzf" ]; then
+                wait $! 2>/dev/null
+                _final_pos=$(get_mpv_position)
+                update_history "$_final_pos"
+            fi
+            ;;
+        *)
+            update_history "0"
             ;;
     esac
-
-    update_history "$_final_pos"
-    wait
+    [ "$menu_program" != "fzf" ] && wait
 }
 
 play() {
@@ -653,6 +659,12 @@ play
 [ "$player_function" = "debug" ] && exit 0
 
 while cmd=$(printf "next\nreplay\nprevious\nselect${seasons_option}\nchange_quality\nquit" | nth "Playing episode $ep_no of $title... "); do
+    # save playback position before acting on the menu choice
+    if [ "$menu_program" = "fzf" ]; then
+        case "$player_function" in
+            mpv*|flatpak_mpv) update_history "$(get_mpv_position)" ;;
+        esac
+    fi
     case "$cmd" in
         next) ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}") 2>/dev/null ;;
         replay) episode="$replay" ;;
