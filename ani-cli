@@ -5,6 +5,7 @@ version_number="4.16.0-anidb"
 # UI
 
 menu() {
+    # shellcheck disable=SC2086
     case "$menu_program" in
         fzf) fzf --reverse --cycle --prompt "$1" $2 $3 ;;
         rofi) rofi -sort -dmenu -i -p "$1" $2 $3 ;;
@@ -203,10 +204,22 @@ anidb_desc() {
     [ -n "$seasons" ] && seasons_option="\nseasons"
 }
 
+# cache the episodes JSON per anime to avoid refetching it for every episode
+ep_json=""
+ep_json_id=""
+
+anime_episodes_json() {
+    _anime_id="$1"
+    if [ "$ep_json_id" != "$_anime_id" ]; then
+        ep_json="$(anidb_curl "https://anidb.app/api/frontend/anime/${_anime_id}/episodes" -A "$agent" -H "Accept: application/json" --max-time 10)"
+        ep_json_id="$_anime_id"
+    fi
+}
+
 episodes_list_anidb() {
     _anime_id="${1##*-}"
-    _ep_json="$(anidb_curl "https://anidb.app/api/frontend/anime/${_anime_id}/episodes" -A "$agent" -H "Accept: application/json" --max-time 10)"
-    printf '%s' "$_ep_json" | sed 's/},{/}\n{/g' | sed -nE 's|.*"number":([0-9]+).*|\1|p' | sort -n -u
+    anime_episodes_json "$_anime_id"
+    printf '%s' "$ep_json" | sed 's/},{/}\n{/g' | sed -nE 's|.*"number":([0-9]+).*|\1|p' | sort -n -u
 }
 
 get_anidb_m3u8() {
@@ -234,8 +247,8 @@ get_episode_url() {
     # try anidb.app
     _anidb_id="${id##*-}"
     if [ -n "$_anidb_id" ]; then
-        _ep_json="$(anidb_curl "https://anidb.app/api/frontend/anime/${_anidb_id}/episodes" -A "$agent" -H "Accept: application/json" --max-time 10)"
-        _m3u8="$(get_anidb_m3u8 "$_anidb_id" "$ep_no" "$_ep_json")"
+        anime_episodes_json "$_anidb_id"
+        _m3u8="$(get_anidb_m3u8 "$_anidb_id" "$ep_no" "$ep_json")"
         if [ -n "$_m3u8" ]; then
             _m3u8_content="$(anidb_curl "$_m3u8" -A "$agent" --max-time 10)"
             if printf '%s' "$_m3u8_content" | grep -q "EXTM3U"; then
@@ -273,7 +286,7 @@ process_hist_entry() {
     ep_list=$(episodes_list_anidb "$id")
     latest_ep=$(printf "%s\n" "$ep_list" | tail -n1)
     title=$(printf "%s\n" "$title" | sed "s|[0-9]\+ episodes|${latest_ep} episodes|")
-    ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}") 2>/dev/null
+    ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}")
     [ -n "$ep_no" ] && printf "%s\t%s - episode %s\n" "$id" "$title" "$ep_no"
     [ -n "$ep_no" ] || printf "%s\t%s - episode %s (up to date)\n" "$id" "$title" "$latest_ep"
 }
@@ -633,7 +646,7 @@ case "$search" in
 
         anime_list=$(search_anidb "$query")
         [ -z "$anime_list" ] && die "No results found!"
-        # check if -i index is a valid number, if so skip interactive selection
+        # check if select-nth index is a valid number, if so skip interactive selection
         [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
         [ -z "$index" ] && result=$(printf "%s" "$anime_list" | nl -w 2 | sed 's/^[[:space:]]//' | nth "Select anime: ")
         [ -z "$result" ] && die "Invalid/No Anime Selection"
@@ -658,7 +671,7 @@ play
 [ "$player_function" = "download" ] && exit 0
 [ "$player_function" = "debug" ] && exit 0
 
-while cmd=$(printf "next\nreplay\nprevious\nselect${seasons_option}\nchange_quality\nquit" | nth "Playing episode $ep_no of $title... "); do
+while cmd=$(printf 'next\nreplay\nprevious\nselect%s\nchange_quality\nquit' "$seasons_option" | nth "Playing episode $ep_no of $title... "); do
     # save playback position before acting on the menu choice
     if [ "$menu_program" = "fzf" ]; then
         case "$player_function" in
