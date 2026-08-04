@@ -181,7 +181,19 @@ anidb_curl() {
     _retries=3
     _result=""
     while [ $_retries -gt 0 ]; do
-        _result="$(curl -sL "$@" 2>/dev/null | tr -d '\r')"
+        _result="$($curl_exe -sL --http1.1 \
+            --ciphers "$ciphers" --tls13-ciphers "$tls13_ciphers" \
+            -A "$agent" \
+            -H 'Accept-Language: en-US,en;q=0.9' \
+            -H 'Accept-Encoding: gzip, deflate' \
+            --compressed \
+            -H 'Sec-CH-UA: "Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"' \
+            -H 'Sec-CH-UA-Mobile: ?0' \
+            -H 'Sec-CH-UA-Platform: "Windows"' \
+            -H 'DNT: 1' \
+            -H 'Upgrade-Insecure-Requests: 1' \
+            -H 'Referer: https://anidb.app' \
+            --max-time 10 "$@" 2>/dev/null | tr -d '\r')"
         [ -n "$_result" ] && printf '%s' "$_result" && return 0
         _retries=$((_retries - 1))
         [ $_retries -gt 0 ] && sleep 1
@@ -486,6 +498,11 @@ play() {
 
 # setup
 agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
+
+# browser-ish transport, no curl-impersonate needed
+ciphers='ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305'
+tls13_ciphers='TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256'
+curl_exe=$(dep_ch_failover "curl_chrome136,curl_firefox135,curl_ff117,curl") || die "Program curl not found"
 mode="${ANI_CLI_MODE:-sub}"
 download_dir="${ANI_CLI_DOWNLOAD_DIR:-.}"
 log_episode="${ANI_CLI_LOG:-1}"
