@@ -16,7 +16,7 @@ menu() {
 
 nth() {
     stdin=$(cat -)
-    [ -z "$stdin" ] && exit 1
+    [ -z "$stdin" ] && return 1
     line_count="$(printf "%s\n" "$stdin" | wc -l | tr -d "[:space:]")"
     [ "$line_count" -eq 1 ] && printf "%s" "$stdin" | cut -f2,3 && return 0
     prompt="$1"
@@ -24,11 +24,11 @@ nth() {
     line=$(printf "%s" "$stdin" | cut -f1,3 | tr '\t' ' ' | menu "$prompt" "$multi_flag" "$menu_extra_flags" | cut -d " " -f 1)
     line_start=$(printf "%s" "$line" | head -n1)
     line_end=$(printf "%s" "$line" | tail -n1)
-    [ -n "$line" ] || exit 1
+    [ -n "$line" ] || return 1
     if [ "$line_start" = "$line_end" ]; then
-        printf "%s" "$stdin" | grep -E '^'"${line}"'($|[[:space:]])' | cut -f2,3 || exit 1
+        printf "%s" "$stdin" | grep -E '^'"${line}"'($|[[:space:]])' | cut -f2,3 || return 1
     else
-        printf "%s" "$stdin" | sed -n '/^'"${line_start}"'$/,/^'"${line_end}$"'/p' || exit 1
+        printf "%s" "$stdin" | sed -n '/^'"${line_start}"'$/,/^'"${line_end}$"'/p' || return 1
     fi
 }
 
@@ -117,13 +117,15 @@ version_info() {
 update_script() {
     info "[branch:$branch] Checking for Update.."
     update="$(curl --fail-with-body -sL -A "$agent" "https://raw.githubusercontent.com/VVAT3R/ani-cli/$branch/ani-cli")" || die "[branch:$branch] Connection error: $update"
+    new_version="$(printf "%s" "$update" | sed -nE 's|^version_number="([^"]+)"$|\1|p')"
+    [ -z "$new_version" ] && die "[branch:$branch] Invalid response."
     printf "%s" "$update" | grep -q "^version_number" || die "[branch:$branch] Invalid Response."
     update="$(printf "%s\n" "$update" | diff -u "$0" -)"
     if [ -z "$update" ]; then
-        info "[branch:$branch] Script is up to date :)"
+        info "[branch:$branch] Script is up to date :) ($version_number)"
     else
         if printf "%s\n" "$update" | patch "$0" -; then
-            info "[branch:$branch] Script has been updated"
+            info "[branch:$branch] Updated: $version_number -> $new_version"
         else
             die "[branch:$branch] Can't update for some reason!"
         fi
@@ -205,14 +207,14 @@ search_anidb() {
     _query="$(printf '%s' "$1" | sed 's/ /+/g')"
     _page="$(anidb_curl "https://anidb.app/search/suggestions?q=${_query}" -A "$agent" --max-time 10 | tr '\n' ' ' | sed 's/<a href/\n<a href/g')"
     printf "%s" "$_page" | grep -qi "Just a moment" && die "Blocked by cloudflare"
-    printf '%s' "$_page" | sed -nE 's|.*anime/([a-z0-9-]+-[0-9]+)".*alt="([^"]+)".*|\1\t\2|p'
+    printf '%s' "$_page" | sed -nE 's|.*anime/([a-z0-9-]+-[0-9]+)".*alt="([^"]+)".*|\1\t\2|p' | sed -e "s|&#039;|'|g"
 }
 
 anidb_desc() {
     _anime_link="$1"
     _page="$(anidb_curl "https://anidb.app/anime/${_anime_link}" -A "$agent" --max-time 10 | tr '\n' ' ' | sed 's|<a href|\n<a href|g')"
     mal_id="$(printf "%s" "$_page" | sed -nE 's|.*https://myanimelist.net/anime/([0-9]+)/.*|\1|p')"
-    seasons="$(printf "%s" "$_page" | sed -n '/>Seasons</,/>Details</p' | sed -nE 's|.*anime/([^"]+-[0-9]+)"[^>]*title="([^"]+)".*|\1\t\2|p')"
+    seasons="$(printf "%s" "$_page" | sed -n '/>Seasons</,/>Details</p' | sed -nE 's|.*anime/([^"]+-[0-9]+)"[^>]*title="([^"]+)".*|\1\t\2|p' | sed -e "s|&#039;|'|g")"
     [ -n "$seasons" ] && seasons_option="\nseasons"
 }
 
@@ -370,7 +372,7 @@ android_mpv() {
 
 play_episode() {
     [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t ani-cli "${anime_title}${ep_no}"
-    [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$ep_no")"
+    [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$canon_ep_no")"
     [ -z "$episode" ] && get_episode_url
 
     # wait for the previous player to close before starting a new one
@@ -472,6 +474,7 @@ play() {
         for i in $range; do
             tput clear
             ep_no=$i
+            canon_ep_no="$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/=")"
             if [ "$batch_mode" = 1 ]; then
                 _count=$((_count + 1))
                 printf "\33[2K\r\033[1;34m[%s/%s] Downloading episode %s...\033[0m\n" "$_count" "$_total" "$ep_no"
@@ -488,6 +491,7 @@ play() {
             play_episode
         done
     else
+        canon_ep_no="$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/=")"
         play_episode
     fi
     # moves up to stored position and deletes to end
