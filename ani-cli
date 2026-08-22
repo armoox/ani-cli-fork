@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="5.0.2-anidb"
+version_number="5.0.3-anidb"
 
 # UI
 
@@ -116,7 +116,7 @@ version_info() {
 
 update_script() {
     info "[branch:$branch] Checking for Update.."
-    update="$(curl --fail-with-body -sL -A "$agent" "https://raw.githubusercontent.com/VVAT3R/ani-cli/$branch/ani-cli")" || die "[branch:$branch] Connection error: $update"
+    update="$(curl --fail-with-body -sL -A "$agent" "https://raw.githubusercontent.com/VVAT3R/ani-cli-fork/$branch/ani-cli")" || die "[branch:$branch] Connection error: $update"
     new_version="$(printf "%s" "$update" | sed -nE 's|^version_number="([^"]+)"$|\1|p')"
     [ -z "$new_version" ] && die "[branch:$branch] Invalid response."
     printf "%s" "$update" | grep -q "^version_number" || die "[branch:$branch] Invalid Response."
@@ -161,7 +161,7 @@ where_mpv() {
 
 cleanup() {
     tput sgr0 2>/dev/null          # clears colors
-    rm -f "${histfile}.new" # remove temp logfile
+    rm -f "${histfile}.new" "/tmp/ani-cli-mpv-$$" # remove temp logfile and stale mpv ipc socket
 }
 
 # SCRAPING
@@ -181,7 +181,7 @@ select_quality() {
 # anidb.app: search, get episodes, extract m3u8
 anidb_curl() {
     _retries=3
-    _result=""
+    _cf=0
     while [ $_retries -gt 0 ]; do
         _result="$($curl_exe -sL --http1.1 \
             --ciphers "$ciphers" --tls13-ciphers "$tls13_ciphers" \
@@ -196,17 +196,25 @@ anidb_curl() {
             -H 'Upgrade-Insecure-Requests: 1' \
             -H 'Referer: https://anidb.app' \
             --max-time 10 "$@" 2>/dev/null | tr -d '\r')"
+        # a Cloudflare challenge page is never useful content: retry instead of parsing garbage
+        if printf '%s' "$_result" | grep -qi "just a moment"; then
+            _cf=1
+            _result=""
+        else
+            _cf=0
+        fi
         [ -n "$_result" ] && printf '%s' "$_result" && return 0
         _retries=$((_retries - 1))
         [ $_retries -gt 0 ] && sleep 1
     done
+    [ "$_cf" -eq 1 ] && warn "anidb.app seems to be blocking requests (Cloudflare challenge received)"
     return 1
 }
 
 search_anidb() {
     _query="$(printf '%s' "$1" | sed 's/ /+/g')"
-    _page="$(anidb_curl "https://anidb.app/search/suggestions?q=${_query}" -A "$agent" --max-time 10 | tr '\n' ' ' | sed 's/<a href/\n<a href/g')"
-    printf "%s" "$_page" | grep -qi "Just a moment" && die "Blocked by cloudflare"
+    _raw="$(anidb_curl "https://anidb.app/search/suggestions?q=${_query}" -A "$agent" --max-time 10)" || die "Search failed: couldn't fetch results from anidb.app (blocked or offline?)"
+    _page="$(printf '%s' "$_raw" | tr '\n' ' ' | sed 's/<a href/\n<a href/g')"
     printf '%s' "$_page" | sed -nE 's|.*anime/([a-z0-9-]+-[0-9]+)".*alt="([^"]+)".*|\1\t\2|p' | sed -e "s|&amp;#039;|'|g" -e "s|&#039;|'|g" -e 's|&amp;quot;|"|g' -e 's|&quot;|"|g'
 }
 
@@ -341,6 +349,20 @@ get_mpv_position() {
     printf "0"
 }
 
+# called from the INT/HUP/TERM trap: persist the playback position of a
+# running mpv before exiting, without clobbering history when no player is up
+save_position_and_cleanup() {
+    case "$player_function" in
+        mpv*|flatpak_mpv)
+            if [ -n "${_mpv_pid:-}" ] && kill -0 "$_mpv_pid" 2>/dev/null; then
+                _pos=$(get_mpv_position)
+                [ -n "$_pos" ] && [ "$_pos" != "0" ] && update_history "$_pos"
+            fi
+            ;;
+    esac
+    cleanup
+}
+
 resume_episode() {
     _hist_id="$1"
     _pos=$(grep -F -- "$_hist_id" "$histfile" | cut -f4)
@@ -353,7 +375,9 @@ download() {
     case $1 in
         *m3u8*)
             command -v "yt-dlp" >/dev/null && yt-dlp --referer "$_dl_refr" "$1" --no-skip-unavailable-fragments --fragment-retries infinite -N 16 -o "$download_dir/$2.mp4" && return 0
-            ffmpeg -extension_picky 0 -referer "$_dl_refr" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4"
+            # -extension_picky needs ffmpeg >= 7.1: retry without it on older builds
+            ffmpeg -extension_picky 0 -referer "$_dl_refr" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4" ||
+                ffmpeg -referer "$_dl_refr" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4"
             ;;
         *)
             # shellcheck disable=SC2086
@@ -374,8 +398,15 @@ android_mpv() {
 }
 
 play_episode() {
+    _mpv_pid=""
     [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t ani-cli "${anime_title}${ep_no}"
-    [ "$skip_intro" = 1 ] && [ -n "$mal_id" ] && skip_flag="$(ani-skip -q "$mal_id" -e "$canon_ep_no" 2>/dev/null)"
+    if [ "$skip_intro" = 1 ]; then
+        if [ -n "$mal_id" ]; then
+            skip_flag="$(ani-skip -i "$mal_id" -e "$ep_no")"
+        else
+            warn "Couldn't find the MyAnimeList id of this anime, intro skipping disabled"
+        fi
+    fi
     [ -z "$episode" ] && get_episode_url
 
     # wait for the previous player to close before starting a new one
@@ -409,6 +440,7 @@ play_episode() {
             [ -n "$_resume_pos" ] && [ "$_resume_pos" != "0" ] && _mpv_args="$_mpv_args --start=$_resume_pos"
             if [ "$no_detach" = 0 ]; then
                 nohup $player_function $_mpv_args $skip_flag --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $refr_flag $player_extra_flags >/dev/null 2>&1 &
+                _mpv_pid=$!
             else
                 $player_function $_mpv_args $skip_flag $refr_flag --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $player_extra_flags
                 mpv_exitcode=$?
@@ -431,6 +463,7 @@ play_episode() {
             [ -n "$_mpv_socket" ] && _flatpak_args="--input-ipc-server=$_mpv_socket"
             [ -n "$_resume_pos" ] && [ "$_resume_pos" != "0" ] && _flatpak_args="$_flatpak_args --start=$_resume_pos"
             nohup flatpak run io.mpv.Mpv $_flatpak_args --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $refr_flag $player_extra_flags >/dev/null 2>&1 &
+            _mpv_pid=$!
             ;;
         vlc*) nohup $player_function --http-referrer="${refr_flag#--referrer=}" --play-and-exit --meta-title="${anime_title} Episode ${ep_no}" "$episode" $player_extra_flags >/dev/null 2>&1 & ;;
         *yncpla*) nohup $player_function "$episode" $player_extra_flags -- --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" $refr_flag >/dev/null 2>&1 & ;;
@@ -487,7 +520,6 @@ play() {
         for i in $range; do
             tput clear 2>/dev/null
             ep_no=$i
-            canon_ep_no="$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/=")"
             if [ "$batch_mode" = 1 ]; then
                 _count=$((_count + 1))
                 printf "\33[2K\r\033[1;34m[%s/%s] Downloading episode %s...\033[0m\n" "$_count" "$_total" "$ep_no"
@@ -504,7 +536,6 @@ play() {
             play_episode
         done
     else
-        canon_ep_no="$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/=")"
         play_episode
     fi
     # moves up to stored position and deletes to end
@@ -611,6 +642,7 @@ while [ $# -gt 0 ]; do
         -h | --help) help_info ;;
         -e | --episode | -r | --range)
             [ $# -lt 2 ] && die "missing argument!"
+            printf "%s" "$2" | grep -qE '[^0-9. -]' && die "Invalid episode number(s): $2"
             ep_no="$2"
             shift
             ;;
@@ -626,7 +658,7 @@ while [ $# -gt 0 ]; do
             branch="${2:-$branch}"
             update_script
             ;;
-        *) query="$(printf "%s" "$query $1" | sed "s|^ ||;s| |+|g")" ;;
+        *) query="$(printf "%s" "$query $1" | sed "s|^ ||")" ;;
     esac
     shift
 done
@@ -649,14 +681,22 @@ case "$player_function" in
     *) dep_ch "$player_function" ;;
 esac
 
-trap 'cleanup; exit 1' INT HUP TERM
+trap 'save_position_and_cleanup; exit 1' INT HUP TERM
 
 # searching
 case "$search" in
     history)
         backup_old_hist
-        anime_list=$(while read -r ep_no id title _pos; do process_hist_entry & done <"$histfile")
-        wait
+        # refresh entries concurrently but throttled, to avoid hammering the api
+        anime_list=$(
+            _n=0
+            while IFS='	' read -r ep_no id title _pos; do
+                process_hist_entry &
+                _n=$((_n + 1))
+                [ $((_n % 4)) -eq 0 ] && wait
+            done <"$histfile"
+            wait
+        )
         [ -z "$anime_list" ] && die "No unwatched series in history!"
         [ -z "${index##*[!0-9]*}" ] && id=$(printf "%s" "$anime_list" | nl -w 2 | sed 's/^[[:space:]]//' | nth "Select anime: " | cut -f1)
         [ -z "${index##*[!0-9]*}" ] || id=$(printf "%s" "$anime_list" | sed -n "${index}p" | cut -f1)
@@ -680,8 +720,6 @@ case "$search" in
         # for checking new releases by specifying anime name
         [ "$search" = "nextep" ] && time_until_next_ep "$query"
 
-        query=$(printf "%s" "$query" | sed "s| |+|g")
-
         anime_list=$(search_anidb "$query")
         [ -z "$anime_list" ] && die "No results found!"
         # check if select-nth index is a valid number, if so skip interactive selection
@@ -693,7 +731,7 @@ case "$search" in
         id="$(printf "%s" "$result" | cut -f1)"
         anidb_desc "$(printf "%s" "$result" | cut -f1)" || true
         ep_list=$(episodes_list_anidb "$id")
-        [ -n "$ep_no" ] && [ "$ep_no" -ne -1 ] && printf "%s" "$ep_list" | grep -v -q "^$ep_no$" && die "Invalid Episode Selection"
+        [ -n "$ep_no" ] && [ "$ep_no" -ne -1 ] && ! printf "%s" "$ep_list" | grep -q "^$ep_no$" && die "Invalid Episode Selection"
         [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | nth "Select episode: " "$menu_multi_flag")
         [ -z "$ep_no" ] && die "Invalid/No Episode Selection"
         ;;

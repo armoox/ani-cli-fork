@@ -22,6 +22,9 @@ Specify the episode numbers to watch. If range is specified it should be quoted 
 \fB\-c | --continue\fR
 Continue watching anime from history.
 .TP
+\fB\--resume\fR
+Resume playback from the last saved position (mpv only).
+.TP
 \fB\-d | --download\fR
 Download episode.
 .TP
@@ -110,6 +113,9 @@ Controls if ani-skip is used to skip intros (works with mpv only). Can be 0 (dis
 .TP
 \fBANI_CLI_NO_DETACH\fR
 Controls if mpv is detached from the main process for playback, which can be useful for use with terminal renderers such as kitty. (works with mpv only). Can be 0 (disabled) or 1 (enabled). Default is 0.
+.TP
+\fBANI_CLI_EXIT_AFTER_PLAY\fR
+Controls if ani-cli exits after playback finishes, returning the player's exit code (useful for non interactive scenarios, mpv only). Implies ANI_CLI_NO_DETACH=1. Can be 0 (disabled) or 1 (enabled). Default is 0.
 .TP
 \fBANI_CLI_BRANCH\fR
 Controls the branch used for updates. Default is master.
