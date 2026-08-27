@@ -3,10 +3,10 @@
   <p><strong>Watch anime from your terminal.</strong></p>
 
   <p>
-    <a href="https://github.com/VVAT3R/ani-cli-fork/wiki/Installation">Install</a> •
-    <a href="https://github.com/VVAT3R/ani-cli-fork/wiki/Usage">Usage</a> •
-    <a href="https://github.com/VVAT3R/ani-cli-fork/wiki/FAQ">FAQ</a> •
-    <a href="https://github.com/VVAT3R/ani-cli-fork/wiki">Wiki</a>
+    <a href="https://github.com/armoox/ani-cli-fork/wiki/Installation">Install</a> •
+    <a href="https://github.com/armoox/ani-cli-fork/wiki/Usage">Usage</a> •
+    <a href="https://github.com/armoox/ani-cli-fork/wiki/FAQ">FAQ</a> •
+    <a href="https://github.com/armoox/ani-cli-fork/wiki">Wiki</a>
   </p>
 
   <p>
@@ -22,15 +22,15 @@ A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built arou
 ### Quick start
 
 ```sh
-curl -sL https://raw.githubusercontent.com/VVAT3R/ani-cli-fork/master/install.sh | sudo sh
+curl -sL https://raw.githubusercontent.com/armoox/ani-cli-fork/master/install.sh | sudo sh
 ```
 
 ### Learn more
 
 | Topic | Link |
 |-------|------|
-| 📦 Installation | [Installation guide](https://github.com/VVAT3R/ani-cli-fork/wiki/Installation) |
-| 🎮 Usage & flags | [Usage guide](https://github.com/VVAT3R/ani-cli-fork/wiki/Usage) |
-| ❓ Questions | [FAQ](https://github.com/VVAT3R/ani-cli-fork/wiki/FAQ) |
-| 🗑️ Uninstall | [Uninstallation](https://github.com/VVAT3R/ani-cli-fork/wiki/Uninstallation) |
-| 🔄 Update | [Update & Patch](https://github.com/VVAT3R/ani-cli-fork/wiki/Update-and-Patch) |
+| 📦 Installation | [Installation guide](https://github.com/armoox/ani-cli-fork/wiki/Installation) |
+| 🎮 Usage & flags | [Usage guide](https://github.com/armoox/ani-cli-fork/wiki/Usage) |
+| ❓ Questions | [FAQ](https://github.com/armoox/ani-cli-fork/wiki/FAQ) |
+| 🗑️ Uninstall | [Uninstallation](https://github.com/armoox/ani-cli-fork/wiki/Uninstallation) |
+| 🔄 Update | [Update & Patch](https://github.com/armoox/ani-cli-fork/wiki/Update-and-Patch) |

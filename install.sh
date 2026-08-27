@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="VVAT3R/ani-cli-fork"
+REPO="armoox/ani-cli-fork"
 BRANCH="master"
 RAW="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 
