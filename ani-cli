@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="5.0.3-anidb"
+version_number="5.0.4-anidb"
 
 # UI
 
@@ -220,6 +220,7 @@ search_anidb() {
 
 anidb_desc() {
     _anime_link="$1"
+    mal_id=""; seasons=""; seasons_option=""
     _page="$(anidb_curl "https://anidb.app/anime/${_anime_link}" -A "$agent" --max-time 10 | tr '\n' ' ' | sed 's|<a href|\n<a href|g')"
     mal_id="$(printf "%s" "$_page" | sed -nE 's|.*https://myanimelist.net/anime/([0-9]+)/.*|\1|p')"
     seasons="$(printf "%s" "$_page" | sed -n '/>Seasons</,/>Details</p' | sed -nE 's|.*anime/([^"]+-[0-9]+)"[^>]*title="([^"]+)".*|\1\t\2|p' | sed -e "s|&#039;|'|g")"
@@ -241,7 +242,7 @@ anime_episodes_json() {
 episodes_list_anidb() {
     _anime_id="${1##*-}"
     anime_episodes_json "$_anime_id"
-    printf '%s' "$ep_json" | sed 's/},{/}\n{/g' | sed -nE 's|.*"number":([0-9]+).*|\1|p' | sort -n -u
+    printf '%s' "$ep_json" | sed 's/},{/}\n{/g' | sed -nE 's|.*"number":([0-9]+(\.[0-9]+)?).*|\1|p' | sort -n -u
 }
 
 get_anidb_m3u8() {
@@ -254,8 +255,10 @@ get_anidb_m3u8() {
     _lang_pref="jpn"
     [ "$mode" = "dub" ] && _lang_pref="eng"
     _lang_json="$(anidb_curl "https://anidb.app/api/frontend/episode/${_ep_id}/languages" -A "$agent" -H "Accept: application/json" --max-time 10)"
-    _embed_url="$(printf '%s' "$_lang_json" | sed -nE "s|.*\"code\":\"${_lang_pref}\"[^}]*\"embed_url\":\"([^\"]*)\".*|\1|p;s|.*\"embed_url\":\"([^\"]*)\"[^}]*\"code\":\"${_lang_pref}\".*|\1|p" | head -1)"
-    [ -z "$_embed_url" ] && _embed_url="$(printf '%s' "$_lang_json" | sed -nE 's|.*"embed_url":"([^"]*)".*|\1|p' | head -1)"
+    # split the JSON into one object per line so field order and nesting can't defeat the regexes
+    _lang_objects="$(printf '%s' "$_lang_json" | sed 's/},{/}\n{/g')"
+    _embed_url="$(printf '%s' "$_lang_objects" | sed -nE "s|.*\"code\":\"${_lang_pref}\".*\"embed_url\":\"([^\"]*)\".*|\1|p;s|.*\"embed_url\":\"([^\"]*)\".*\"code\":\"${_lang_pref}\".*|\1|p" | head -1)"
+    [ -z "$_embed_url" ] && _embed_url="$(printf '%s' "$_lang_objects" | sed -nE 's|.*"embed_url":"([^"]*)".*|\1|p' | head -1)"
     _embed_url="$(printf '%s' "$_embed_url" | sed 's|\\/|/|g')"
     [ -z "$_embed_url" ] && return 1
     _page="$(anidb_curl "$_embed_url" -A "$agent" --max-time 10)"
@@ -483,7 +486,12 @@ play_episode() {
         mpv*|flatpak_mpv)
             if [ "$menu_program" != "fzf" ]; then
                 _final_pos=0
-                while kill -0 "$!" 2>/dev/null; do
+                _wait_pid=""
+                case "$no_detach" in
+                    0) _wait_pid="$_mpv_pid" ;;
+                    1) _final_pos="$(get_mpv_position)" ;;  # foreground: mpv already returned, grab once
+                esac
+                while [ -n "$_wait_pid" ] && kill -0 "$_wait_pid" 2>/dev/null; do
                     _pos=$(get_mpv_position)
                     [ -n "$_pos" ] && [ "$_pos" != "0" ] && _final_pos=$_pos
                     sleep 2
@@ -570,8 +578,13 @@ skip_intro="${ANI_CLI_SKIP_INTRO:-0}"
 menu_program="${ANI_CLI_MENU:-fzf}"
 menu_extra_flags="${ANI_CLI_MENU_FLAGS:-}"
 
-[ -t 0 ] || { command -v rofi >/dev/null 2>&1 && menu_program=rofi; }
-[ -t 0 ] || { command -v dmenu >/dev/null 2>&1 && menu_program=dmenu; }
+if [ ! -t 0 ]; then
+    if command -v rofi >/dev/null 2>&1; then
+        menu_program=rofi
+    elif command -v dmenu >/dev/null 2>&1; then
+        menu_program=dmenu
+    fi
+fi
 
 hist_dir="${ANI_CLI_HIST_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ani-cli}"
 [ ! -d "$hist_dir" ] && mkdir -p "$hist_dir"
@@ -655,7 +668,12 @@ while [ $# -gt 0 ]; do
         -N | --nextep-countdown) search=nextep ;;
         -U | --update)
             dep_ch "patch"
-            branch="${2:-$branch}"
+            if [ $# -gt 1 ]; then
+                case "$2" in
+                    -*) ;;
+                    *) branch="$2" ;;
+                esac
+            fi
             update_script
             ;;
         *) query="$(printf "%s" "$query $1" | sed "s|^ ||")" ;;
@@ -731,7 +749,13 @@ case "$search" in
         id="$(printf "%s" "$result" | cut -f1)"
         anidb_desc "$(printf "%s" "$result" | cut -f1)" || true
         ep_list=$(episodes_list_anidb "$id")
-        [ -n "$ep_no" ] && [ "$ep_no" -ne -1 ] && ! printf "%s" "$ep_list" | grep -q "^$ep_no$" && die "Invalid Episode Selection"
+        # -1 (last episode) is always valid; ranges/multiples/decimals are validated by play()
+        if [ -n "$ep_no" ] && [ "$ep_no" != "-1" ]; then
+            case "$ep_no" in
+                *[!0-9]*) ;;                       # range/multi/non-whole: checked in play()
+                *) printf "%s" "$ep_list" | grep -q "^$ep_no$" || die "Invalid Episode Selection" ;;
+            esac
+        fi
         [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | nth "Select episode: " "$menu_multi_flag")
         [ -z "$ep_no" ] && die "Invalid/No Episode Selection"
         ;;
@@ -765,6 +789,7 @@ while cmd=$(printf 'next\nreplay\nprevious\nselect%s\nchange_quality\nquit' "$se
             title="$(printf "%s" "$new_anime" | cut -f2)"
             anime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
             id="$(printf "%s" "$new_anime" | cut -f1)"
+            anidb_desc "$id" || true
             ep_list=$(episodes_list_anidb "$id")
             ep_no=$(printf "%s" "$ep_list" | nth "Select episode: " "$menu_multi_flag")
             [ -z "$ep_no" ] && die "Invalid/No Episode Selection"
@@ -783,6 +808,7 @@ while cmd=$(printf 'next\nreplay\nprevious\nselect%s\nchange_quality\nquit' "$se
     [ -z "$ep_no" ] && die "Out of range"
     play
 done
+cleanup
 
 # ani-cli
 #
