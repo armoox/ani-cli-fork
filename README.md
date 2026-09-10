@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://anineko.to/icon/android-chrome-192x192.png" alt="anineko.to" width="100">
+  <img src="https://anineko.to/img/logo.png?v=4" alt="anineko.to" width="200">
   <p><strong>Watch anime from your terminal.</strong></p>
 
   <p>
