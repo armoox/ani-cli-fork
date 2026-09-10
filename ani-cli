@@ -176,11 +176,11 @@ select_quality() {
 
     refr_flag="--referrer=https://otakuhg.site/"
     # the shard CDN closes keepalive connections (ffmpeg logs "keepalive request
-    # failed" and reconnects), so use http_persistent=0 to open a fresh connection
-    # per segment (fast, curl-like) and --cache=yes so mpv greedily pre-buffers the
-    # whole episode instead of stuttering. Seeking still works: this stays on the
-    # VOD URL and only tunes the prefetcher/connection handling.
-    bacc_flag="--cache=yes --stream-lavf-o=http_persistent=0"
+    # failed" and reconnects) and rate-limits bursts, so fetch each segment on a
+    # fresh connection (http_persistent=0) and let mpv greedily pre-buffer the
+    # episode. demuxer-max-back-bytes keeps everything already played cached too,
+    # so backward seeks stay instant instead of re-downloading from the shard.
+    bacc_flag="--cache=yes --stream-lavf-o=http_persistent=0 --demuxer-max-back-bytes=512MiB"
     episode=$(printf "%s" "$result" | cut -d'>' -f2)
 }
 
