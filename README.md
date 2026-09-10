@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>ani-cli</h1>
+  <img src="https://anineko.to/icon/android-chrome-192x192.png" alt="anineko.to" width="100">
   <p><strong>Watch anime from your terminal.</strong></p>
 
   <p>
