@@ -17,7 +17,7 @@
 
 ---
 
-A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) built around **Anikoto** — Experimental Stage
+A fork of [pystardust/ani-cli](https://github.com/pystardust/ani-cli) — built around [anineko.to](https://anineko.to) with CDN-tolerant playback
 
 ### Quick start
 
