@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="5.0.4-anidb"
+version_number="5.1.0-anineko"
 
 # UI
 
@@ -174,114 +174,174 @@ select_quality() {
     esac
     [ -z "$result" ] && warn "Specified quality not found, defaulting to best" && result=$(printf "%s" "$links" | head -n1)
 
-    refr_flag="--referrer=https://anidb.app"
+    refr_flag="--referrer=https://otakuhg.site/"
+    # the shard CDN closes keepalive connections (ffmpeg logs "keepalive request
+    # failed" and reconnects), so use http_persistent=0 to open a fresh connection
+    # per segment (fast, curl-like) and --cache=yes so mpv greedily pre-buffers the
+    # whole episode instead of stuttering. Seeking still works: this stays on the
+    # VOD URL and only tunes the prefetcher/connection handling.
+    bacc_flag="--cache=yes --stream-lavf-o=http_persistent=0"
     episode=$(printf "%s" "$result" | cut -d'>' -f2)
 }
 
-# anidb.app: search, get episodes, extract m3u8
-anidb_curl() {
-    _retries=3
-    _cf=0
-    while [ $_retries -gt 0 ]; do
-        _result="$($curl_exe -sL --http1.1 \
-            --ciphers "$ciphers" --tls13-ciphers "$tls13_ciphers" \
-            -A "$agent" \
-            -H 'Accept-Language: en-US,en;q=0.9' \
-            -H 'Accept-Encoding: gzip, deflate' \
-            --compressed \
-            -H 'Sec-CH-UA: "Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"' \
-            -H 'Sec-CH-UA-Mobile: ?0' \
-            -H 'Sec-CH-UA-Platform: "Windows"' \
-            -H 'DNT: 1' \
-            -H 'Upgrade-Insecure-Requests: 1' \
-            -H 'Referer: https://anidb.app' \
-            --max-time 10 "$@" 2>/dev/null | tr -d '\r')"
-        # a Cloudflare challenge page is never useful content: retry instead of parsing garbage
-        if printf '%s' "$_result" | grep -qi "just a moment"; then
-            _cf=1
-            _result=""
-        else
-            _cf=0
-        fi
-        [ -n "$_result" ] && printf '%s' "$_result" && return 0
-        _retries=$((_retries - 1))
-        [ $_retries -gt 0 ] && sleep 1
-    done
-    [ "$_cf" -eq 1 ] && warn "anidb.app seems to be blocking requests (Cloudflare challenge received)"
-    return 1
+# anineko.to: search, get episodes, extract m3u8
+anineko_curl() {
+    _ref="${_referer:-https://anineko.to/}"
+    $curl_exe -sL -A "$agent" --max-time 15 \
+        -H 'Accept-Language: en-US,en;q=0.9' \
+        -H 'Accept-Encoding: gzip, deflate' \
+        --compressed \
+        -H "Referer: ${_ref}" \
+        "$@" 2>/dev/null | tr -d '\r'
 }
 
-search_anidb() {
+search_anineko() {
     _query="$(printf '%s' "$1" | sed 's/ /+/g')"
-    _raw="$(anidb_curl "https://anidb.app/search/suggestions?q=${_query}" -A "$agent" --max-time 10)" || die "Search failed: couldn't fetch results from anidb.app (blocked or offline?)"
-    _page="$(printf '%s' "$_raw" | tr '\n' ' ' | sed 's/<a href/\n<a href/g')"
-    printf '%s' "$_page" | sed -nE 's|.*anime/([a-z0-9-]+-[0-9]+)".*alt="([^"]+)".*|\1\t\2|p' | sed -e "s|&amp;#039;|'|g" -e "s|&#039;|'|g" -e 's|&amp;quot;|"|g' -e 's|&quot;|"|g'
+    _raw="$(anineko_curl "https://anineko.to/browser?keyword=${_query}")" || die "Search failed: couldn't fetch results from anineko.to (blocked or offline?)"
+    printf '%s' "$_raw" | tr '\n' ' ' | sed 's/<a/\n<a/g' \
+        | sed -nE 's|.*<a href="/watch/([a-z0-9-]+)"[^>]*>([^<]+)</a>.*|\1\t\2|p'
 }
 
-anidb_desc() {
-    _anime_link="$1"
+anineko_desc() {
     mal_id=""; seasons=""; seasons_option=""
-    _page="$(anidb_curl "https://anidb.app/anime/${_anime_link}" -A "$agent" --max-time 10 | tr '\n' ' ' | sed 's|<a href|\n<a href|g')"
-    mal_id="$(printf "%s" "$_page" | sed -nE 's|.*https://myanimelist.net/anime/([0-9]+)/.*|\1|p')"
-    seasons="$(printf "%s" "$_page" | sed -n '/>Seasons</,/>Details</p' | sed -nE 's|.*anime/([^"]+-[0-9]+)"[^>]*title="([^"]+)".*|\1\t\2|p' | sed -e "s|&#039;|'|g")"
-    [ -n "$seasons" ] && seasons_option="\nseasons"
 }
 
-# cache the episodes JSON per anime to avoid refetching it for every episode
-ep_json=""
-ep_json_id=""
+# cache the episode page per anime to avoid refetching for every episode
+ep_page=""
+ep_page_id=""
 
-anime_episodes_json() {
-    _anime_id="$1"
-    if [ "$ep_json_id" != "$_anime_id" ]; then
-        ep_json="$(anidb_curl "https://anidb.app/api/frontend/anime/${_anime_id}/episodes" -A "$agent" -H "Accept: application/json" --max-time 10)"
-        ep_json_id="$_anime_id"
+anime_episodes_page() {
+    _slug="$1"
+    if [ "$ep_page_id" != "$_slug" ]; then
+        ep_page="$(anineko_curl "https://anineko.to/watch/${_slug}")"
+        ep_page_id="$_slug"
     fi
 }
 
-episodes_list_anidb() {
-    _anime_id="${1##*-}"
-    anime_episodes_json "$_anime_id"
-    printf '%s' "$ep_json" | sed 's/},{/}\n{/g' | sed -nE 's|.*"number":([0-9]+(\.[0-9]+)?).*|\1|p' | sort -n -u
+episodes_list_anineko() {
+    _slug="$1"
+    anime_episodes_page "$_slug"
+    printf '%s' "$ep_page" | grep -oE "/watch/${_slug}/ep-[0-9]+" \
+        | sed -nE "s|/watch/${_slug}/ep-([0-9]+)|\1|p" | sort -n -u
 }
 
-get_anidb_m3u8() {
-    _anime_id="${1##*-}"
+# otakuhg (~anineko.to's embed): unpack the packed player JS from an embed page
+# (reads the page on stdin, prints the deobfuscated JS on stdout)
+otakuhg_unpack() {
+    awk '
+function baseto36(n,    s) {
+    s = ""
+    while (1) {
+        s = substr("0123456789abcdefghijklmnopqrstuvwxyz", n % 36 + 1, 1) s
+        n = int(n / 36)
+        if (n == 0) return s
+    }
+    return s
+}
+{ html = (html $0) }
+END {
+    Q = sprintf("%c", 39)
+    start = index(html, "eval(function(p,a,c,k,e,d)")
+    if (start == 0) exit 1
+    rest = substr(html, start)
+    call = index(rest, "}(" Q)
+    if (call == 0) exit 1
+    code_start = call + 3
+    code = ""
+    len = length(rest)
+    i = code_start
+    esc = 0
+    while (i <= len) {
+        c = substr(rest, i, 1)
+        if (c == "\\") { code = code c; esc = 1; i++; continue }
+        if (c == Q && !esc) break
+        code = code c
+        esc = 0
+        i++
+    }
+    n = match(substr(rest, i), /^\x27,([0-9]+),([0-9]+),\x27([^\x27]*)\x27\.split\(\x27[|]\x27\)/, m)
+    if (n == 0) exit 1
+    count = m[2] + 0
+    nd = split(m[3], D, "\\|")
+    if (m[1] != 36) exit 1
+    for (i = count - 1; i >= 1; i--) {
+        tok = baseto36(i)
+        if (i + 1 > nd) continue
+        val = D[i + 1]
+        if (val == "") continue
+        w = gensub("(^|[^a-zA-Z0-9_])" tok "([^a-zA-Z0-9_]|$)", "\\1" val "\\2", "g", code)
+        if (w != "") code = w
+    }
+    print code
+}'
+}
+
+get_anineko_m3u8() {
+    _slug="$1"
     _ep_no="$2"
-    _ep_json="${3:-}"
-    [ -z "$_ep_json" ] && _ep_json="$(anidb_curl "https://anidb.app/api/frontend/anime/${_anime_id}/episodes" -A "$agent" -H "Accept: application/json" --max-time 10)"
-    _ep_id="$(printf '%s' "$_ep_json" | sed -nE "s|.*\"id\":([0-9]+),\"number\":${_ep_no}[,}].*|\1|p" | head -1)"
-    [ -z "$_ep_id" ] && return 1
-    _lang_pref="jpn"
-    [ "$mode" = "dub" ] && _lang_pref="eng"
-    _lang_json="$(anidb_curl "https://anidb.app/api/frontend/episode/${_ep_id}/languages" -A "$agent" -H "Accept: application/json" --max-time 10)"
-    # split the JSON into one object per line so field order and nesting can't defeat the regexes
-    _lang_objects="$(printf '%s' "$_lang_json" | sed 's/},{/}\n{/g')"
-    _embed_url="$(printf '%s' "$_lang_objects" | sed -nE "s|.*\"code\":\"${_lang_pref}\".*\"embed_url\":\"([^\"]*)\".*|\1|p;s|.*\"embed_url\":\"([^\"]*)\".*\"code\":\"${_lang_pref}\".*|\1|p" | head -1)"
-    [ -z "$_embed_url" ] && _embed_url="$(printf '%s' "$_lang_objects" | sed -nE 's|.*"embed_url":"([^"]*)".*|\1|p' | head -1)"
-    _embed_url="$(printf '%s' "$_embed_url" | sed 's|\\/|/|g')"
-    [ -z "$_embed_url" ] && return 1
-    _page="$(anidb_curl "$_embed_url" -A "$agent" --max-time 10)"
-    printf '%s' "$_page" | sed -nE "s|.*file: '([^']*)'.*|\1|p" | head -1
+    [ "$mode" = "dub" ] && _prefs="dub hsub sub" || _prefs="hsub sub dub"
+    _page="$(anineko_curl "https://anineko.to/watch/${_slug}/ep-${_ep_no}")"
+    [ -z "$_page" ] && return 1
+    # extract data-video URLs from the matching language group
+    _group=""
+    for _lang in $_prefs; do
+        _g="$(printf '%s' "$_page" | tr '\n' ' ' | sed 's/server-items/\nserver-items/g' \
+            | sed -nE "s|.*server-items[^>]*data-id=\"${_lang}\"[[:space:]]*>(.*)|\1|p" \
+            | sed 's/server-items/\n/g' | head -1)"
+        if [ -n "$_g" ]; then
+            _group="$_g"
+            break
+        fi
+    done
+    [ -z "$_group" ] && return 1
+    # otakuhg embed first: hls3 is hosted on a raw-TS shard CDN that plays fine
+    # from the CLI; hls4 (same-origin) is the backup source.
+    _embed="$(printf '%s' "$_group" | grep -oE 'https://otakuhg\.site/e/[a-z0-9]+' | head -1)"
+    if [ -n "$_embed" ]; then
+        _embed_page="$(anineko_curl "$_embed")"
+        _decoded="$(printf '%s' "$_embed_page" | otakuhg_unpack)"
+        _hls_url="$(printf '%s' "$_decoded" | grep -oE '"hls3":"[^"]*"' | head -1 | sed 's|"hls3":"||; s|"$||')"
+        [ -z "$_hls_url" ] && _hls_url="$(printf '%s' "$_decoded" | grep -oE '"hls4":"[^"]*"' | head -1 | sed 's|"hls4":"||; s|"$||')"
+        if [ -n "$_hls_url" ]; then
+            case "$_hls_url" in
+                /*) _hls_url="https://otakuhg.site${_hls_url}" ;;
+            esac
+            _referer="https://otakuhg.site/"
+            _m3u8_content="$(anineko_curl "$_hls_url")"
+            _referer="https://anineko.to/"
+            _m3u8_base="$(printf '%s' "$_hls_url" | sed 's|[^/]*$||')"
+            printf '%s' "$_m3u8_content" | grep -q "EXTM3U" || return 1
+            printf '%s' "$_m3u8_content" \
+                | sed 's|^#EXT-X-STREAM.*x||g; s|,.*|p|g' \
+                | sed -E "s@^([^[:space:]]*\.(m3u8|txt))\$@${_m3u8_base}\1@" \
+                | sed '/^#/d; $!N; s|\n| >|; /EXT-X-I-FRAME/d' | sort -nr
+            return 0
+        fi
+    fi
+    # fallback: vivibebe embed (segments are usually geo/anti-bot blocked, but
+    # keep it so a playlist is still produced when no otakuhg embed exists)
+    _embed_id="$(printf '%s' "$_group" | grep -oE 'vivibebe\.site/[a-f0-9]+' | head -1 | sed 's|vivibebe\.site/||')"
+    [ -z "$_embed_id" ] && return 1
+    _embed_page="$(anineko_curl "https://vivibebe.site/${_embed_id}")"
+    # extract the master m3u8 URL from the vivibebe embed
+    _m3u8_url="$(printf '%s' "$_embed_page" | sed -nE 's|.*src = "([^"]*master\.m3u8)".*|\1|p' | head -1)"
+    [ -z "$_m3u8_url" ] && return 1
+    _referer="https://vivibebe.site/${_embed_id}"
+    _m3u8_content="$(anineko_curl "$_m3u8_url")"
+    _referer="https://anineko.to/"
+    _m3u8_base="$(printf '%s' "$_m3u8_url" | sed 's|[^/]*$||')"
+    printf '%s' "$_m3u8_content" | grep -q "EXTM3U" || return 1
+    printf '%s' "$_m3u8_content" \
+        | sed 's|^#EXT-X-STREAM.*x||g; s|,.*|p|g' \
+        | sed "s|^\([^[:space:]]*\.m3u8\)$|${_m3u8_base}\1|" \
+        | sed '/^#/d; $!N; s|\n| >|; /EXT-X-I-FRAME/d' | sort -nr
 }
 
-# gets m3u8 stream URL from anidb.app and selects quality
+# gets m3u8 stream URL from anineko.to and selects quality
 get_episode_url() {
     links=""
-
-    # try anidb.app
-    _anidb_id="${id##*-}"
-    if [ -n "$_anidb_id" ]; then
-        anime_episodes_json "$_anidb_id"
-        _m3u8="$(get_anidb_m3u8 "$_anidb_id" "$ep_no" "$ep_json")"
-        if [ -n "$_m3u8" ]; then
-            _m3u8_content="$(anidb_curl "$_m3u8" -A "$agent" --max-time 10)"
-            if printf '%s' "$_m3u8_content" | grep -q "EXTM3U"; then
-                links="$(printf '%s' "$_m3u8_content" | sed 's|^#EXT-X-STREAM.*x||g; s|,.*|p|g; /^#/d; $!N; s|\n| >|; /EXT-X-I-FRAME/d' | sort -nr)"
-                [ -n "$links" ] && printf "\033[1;32m%s\033[0m Links Fetched\n" "anidb.app" 1>&2
-            fi
-        fi
-    fi
+    _m3u8="$(get_anineko_m3u8 "$id" "$ep_no")"
+    [ -n "$_m3u8" ] && links="$_m3u8"
 
     select_quality "$quality"
     if printf "%s" "$ep_list" | grep -q "^$ep_no$"; then
@@ -309,7 +369,7 @@ time_until_next_ep() {
 # PLAYING
 
 process_hist_entry() {
-    ep_list=$(episodes_list_anidb "$id")
+    ep_list=$(episodes_list_anineko "$id")
     latest_ep=$(printf "%s\n" "$ep_list" | tail -n1)
     title=$(printf "%s\n" "$title" | sed "s|[0-9]\+ episodes|${latest_ep} episodes|")
     ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}")
@@ -376,11 +436,63 @@ resume_episode() {
 download() {
     _dl_refr="${refr_flag#--referrer=}"
     case $1 in
-        *m3u8*)
-            command -v "yt-dlp" >/dev/null && yt-dlp --referer "$_dl_refr" "$1" --no-skip-unavailable-fragments --fragment-retries infinite -N 16 -o "$download_dir/$2.mp4" && return 0
+        *m3u8*|*txt*)
+            if command -v "yt-dlp" >/dev/null; then
+                yt-dlp --referer "$_dl_refr" "$1" --no-skip-unavailable-fragments --fragment-retries infinite -N 4 -o "$download_dir/$2.mp4" && return 0
+                warn "yt-dlp failed, trying ffmpeg"
+            fi
             # -extension_picky needs ffmpeg >= 7.1: retry without it on older builds
-            ffmpeg -extension_picky 0 -referer "$_dl_refr" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4" ||
-                ffmpeg -referer "$_dl_refr" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4"
+            if ffmpeg -extension_picky 0 -referer "$_dl_refr" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4" \
+                || ffmpeg -referer "$_dl_refr" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4"; then
+                return 0
+            fi
+            # some otakuhg variants name the mpeg-ts segments "*.woff2", which the
+            # system ffmpeg's hls demuxer rejects outright; concatenate them with
+            # curl (fresh connection per segment, referer set) and remux locally
+            case $1 in
+                *txt*)
+                    warn "ffmpeg can't read this playlist directly; falling back to curl segment download"
+                    _tmp_ts="/tmp/ani-cli-$$.ts"
+                    _pl_file="/tmp/ani-cli-pl-$$.txt"
+                    curl -fsSL --compressed -A "$agent" -H "Referer: $_dl_refr" "$1" | tr -d '\r' > "$_pl_file" || die "download failed: couldn't fetch playlist"
+                    _base="$(printf '%s' "$1" | sed 's|[^/]*$||')"
+                    while IFS= read -r _seg; do
+                        case $_seg in '#'*|'') continue ;;
+                        esac
+                        _ok=0
+                        _try=0
+                        while [ "$_ok" = 0 ] && [ "$_try" -lt 5 ]; do
+                            _try=$((_try + 1))
+                            if ! curl -fsSL --compressed -A "$agent" -H "Referer: $_dl_refr" "${_base}${_seg}" -o "$_tmp_ts.part"; then
+                                sleep 2
+                                continue
+                            fi
+                            _sz=$(wc -c < "$_tmp_ts.part" 2>/dev/null || printf "0")
+                            # the shard CDN rate-limits request bursts and then answers
+                            # with truncated 200 bodies: treat those as failures and back off
+                            if [ "${_sz:-0}" -lt 5000 ]; then
+                                sleep 2
+                                continue
+                            fi
+                            cat "$_tmp_ts.part" >> "$_tmp_ts"
+                            _ok=1
+                        done
+                        [ "$_ok" = 0 ] && { rm -f "$_tmp_ts" "$_tmp_ts.part" "$_pl_file"; die "download failed on segment $_seg (shard throttled?)"; }
+                    done < "$_pl_file"
+                    rm -f "$_tmp_ts.part"
+                    _sum=$(grep '#EXTINF' "$_pl_file" | sed 's/[^0-9.]//g' | awk '{s+=$1} END {print s + 0}')
+                    rm -f "$_pl_file"
+                    ffmpeg -loglevel error -y -i "$_tmp_ts" -c copy "$download_dir/$2.mp4"
+                    _rc=$?
+                    rm -f "$_tmp_ts"
+                    [ "$_rc" != 0 ] && die "download failed"
+                    if command -v ffprobe >/dev/null 2>&1 && [ -n "${_sum:-}" ] && [ "${_sum:-0}" -gt 0 ]; then
+                        _dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$download_dir/$2.mp4" 2>/dev/null | cut -d. -f1)
+                        [ -n "${_dur:-}" ] && [ "${_dur:-0}" -lt "$((_sum / 2))" ] && warn "File is much shorter than the source ($_dur s vs ~$_sum s) - the shard likely rate-limited the download; try again."
+                    fi
+                    return 0
+                    ;;
+            esac
             ;;
         *)
             # shellcheck disable=SC2086
@@ -442,15 +554,15 @@ play_episode() {
             [ -n "$_mpv_socket" ] && _mpv_args="--input-ipc-server=$_mpv_socket"
             [ -n "$_resume_pos" ] && [ "$_resume_pos" != "0" ] && _mpv_args="$_mpv_args --start=$_resume_pos"
             if [ "$no_detach" = 0 ]; then
-                nohup $player_function $_mpv_args $skip_flag --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $refr_flag $player_extra_flags >/dev/null 2>&1 &
+                nohup $player_function $_mpv_args $skip_flag --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $refr_flag $bacc_flag $player_extra_flags >/dev/null 2>&1 &
                 _mpv_pid=$!
             else
-                $player_function $_mpv_args $skip_flag $refr_flag --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $player_extra_flags
+                $player_function $_mpv_args $skip_flag $refr_flag $bacc_flag --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $player_extra_flags
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
             ;;
-        android_mpv) "$player_function" "$episode" "${anime_title} Episode ${ep_no}" "--tls-verify=no $refr_flag" $player_extra_flags 2>&1 & ;;
+        android_mpv) "$player_function" "$episode" "${anime_title} Episode ${ep_no}" "--tls-verify=no $refr_flag $bacc_flag" $player_extra_flags 2>&1 & ;;
         android_vlc) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity -e "title" "${anime_title} Episode ${ep_no}" $player_extra_flags >/dev/null 2>&1 & ;;
         *iina*)
             _iina_refr_flag=""
@@ -465,7 +577,7 @@ play_episode() {
             _flatpak_args=""
             [ -n "$_mpv_socket" ] && _flatpak_args="--input-ipc-server=$_mpv_socket"
             [ -n "$_resume_pos" ] && [ "$_resume_pos" != "0" ] && _flatpak_args="$_flatpak_args --start=$_resume_pos"
-            nohup flatpak run io.mpv.Mpv $_flatpak_args --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $refr_flag $player_extra_flags >/dev/null 2>&1 &
+            nohup flatpak run io.mpv.Mpv $_flatpak_args --tls-verify=no --force-media-title="${anime_title} Episode ${ep_no}" "$episode" $refr_flag $bacc_flag $player_extra_flags >/dev/null 2>&1 &
             _mpv_pid=$!
             ;;
         vlc*) nohup $player_function --http-referrer="${refr_flag#--referrer=}" --play-and-exit --meta-title="${anime_title} Episode ${ep_no}" "$episode" $player_extra_flags >/dev/null 2>&1 & ;;
@@ -563,6 +675,8 @@ mode="${ANI_CLI_MODE:-sub}"
 download_dir="${ANI_CLI_DOWNLOAD_DIR:-.}"
 log_episode="${ANI_CLI_LOG:-1}"
 quality="${ANI_CLI_QUALITY:-best}"
+bacc_flag=""
+refr_flag=""
 case "$(uname -a | cut -d " " -f 1,3-)" in
     *Darwin*) player_function="${ANI_CLI_PLAYER:-$(where_iina)}" ;;   # mac OS
     *ndroid*) player_function="${ANI_CLI_PLAYER:-android_mpv}" ;;     # Android OS (termux)
@@ -683,7 +797,7 @@ done
 [ "$menu_program" = "fzf" ] && menu_multi_flag="-m"
 [ "$menu_program" = "rofi" ] && menu_multi_flag="-multi-select"
 
-info "Using provider: anidb"
+info "Using provider: anineko"
 
 info "Checking dependencies..."
 dep_ch "sed"
@@ -720,10 +834,10 @@ case "$search" in
         [ -z "${index##*[!0-9]*}" ] || id=$(printf "%s" "$anime_list" | sed -n "${index}p" | cut -f1)
         [ -z "$id" ] && exit 1
         title=$(printf "%s" "$anime_list" | grep -F "$id" | cut -f2 | sed 's/ - episode.*//')
-        ep_list=$(episodes_list_anidb "$id")
+        ep_list=$(episodes_list_anineko "$id")
         ep_no=$(printf "%s" "$anime_list" | grep -F "$id" | cut -f2 | sed -nE 's/.*- episode (.+)$/\1/p')
         anime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
-        anidb_desc "$id" || true
+        anineko_desc "$id" || true
         printf "%s" "$anime_list" | grep -F "$id" | cut -f2 | grep -q "(up to date)" && time_until_next_ep "$anime_title"
         ;;
     *)
@@ -738,7 +852,7 @@ case "$search" in
         # for checking new releases by specifying anime name
         [ "$search" = "nextep" ] && time_until_next_ep "$query"
 
-        anime_list=$(search_anidb "$query")
+        anime_list=$(search_anineko "$query")
         [ -z "$anime_list" ] && die "No results found!"
         # check if select-nth index is a valid number, if so skip interactive selection
         [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
@@ -747,8 +861,8 @@ case "$search" in
         title="$(printf "%s" "$result" | cut -f2)"
         anime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         id="$(printf "%s" "$result" | cut -f1)"
-        anidb_desc "$(printf "%s" "$result" | cut -f1)" || true
-        ep_list=$(episodes_list_anidb "$id")
+        anineko_desc "$(printf "%s" "$result" | cut -f1)" || true
+        ep_list=$(episodes_list_anineko "$id")
         # -1 (last episode) is always valid; ranges/multiples/decimals are validated by play()
         if [ -n "$ep_no" ] && [ "$ep_no" != "-1" ]; then
             case "$ep_no" in
@@ -789,8 +903,8 @@ while cmd=$(printf 'next\nreplay\nprevious\nselect%s\nchange_quality\nquit' "$se
             title="$(printf "%s" "$new_anime" | cut -f2)"
             anime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
             id="$(printf "%s" "$new_anime" | cut -f1)"
-            anidb_desc "$id" || true
-            ep_list=$(episodes_list_anidb "$id")
+            anineko_desc "$id" || true
+            ep_list=$(episodes_list_anineko "$id")
             ep_no=$(printf "%s" "$ep_list" | nth "Select episode: " "$menu_multi_flag")
             [ -z "$ep_no" ] && die "Invalid/No Episode Selection"
             ;;
